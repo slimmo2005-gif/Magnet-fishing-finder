@@ -233,6 +233,8 @@
     .star-opt.selected { background: var(--blue); border-color: var(--blue); color: #fff; }
     .star-opt.unacc.selected { background: #b71c1c; border-color: #b71c1c; }
     .star-opt.unacc { color: #ef9a9a; }
+    .star-opt.nowater.selected { background: #0277bd; border-color: #0277bd; }
+    .star-opt.nowater { color: #81d4fa; }
     .rmodal-btns { display: flex; gap: 10px; }
     .rmodal-btns .btn { flex: 1; }
 
@@ -472,6 +474,7 @@
     <label class="field-label" style="margin-bottom:8px">Your Rating</label>
     <div class="star-row">
       <div class="star-opt unacc" data-val="0" onclick="selectRating(0)">🚫<br>No Access</div>
+      <div class="star-opt nowater" data-val="-1" onclick="selectRating(-1)">💧<br>Not near water</div>
       <div class="star-opt" data-val="1" onclick="selectRating(1)">★<br>1 star</div>
       <div class="star-opt" data-val="2" onclick="selectRating(2)">★★<br>2 stars</div>
       <div class="star-opt" data-val="3" onclick="selectRating(3)">★★★<br>3 stars</div>
@@ -480,7 +483,7 @@
     </div>
 
     <div id="rating-note" style="font-size:11px;color:var(--fg-dim);margin-bottom:14px">
-      "No Access" = this spot will be hidden in future searches on this device.
+      "No Access" and "Not near water" hide this spot in future searches on this device. Star ratings can be changed any time.
     </div>
 
     <div class="rmodal-btns">
@@ -503,8 +506,9 @@
 
 const MAX_RESULTS        = 35;
 const MIN_CLUSTER_DIST_M = 300;
-const RATING_UNACCESSIBLE = 0;
-const RATING_DIST_TOL_M   = 80;
+const RATING_UNACCESSIBLE   = 0;
+const RATING_NOT_NEAR_WATER = -1;
+const RATING_DIST_TOL_M     = 80;
 const RATINGS_KEY         = 'mff_ratings_v1';  // localStorage key
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
@@ -624,6 +628,28 @@ function findRatingEntry(lat, lon) {
 function getRatingForSpot(lat, lon) {
   const { entry } = findRatingEntry(lat, lon);
   return entry ? entry.rating : null;
+}
+
+function isHiddenRating(r) {
+  return r === RATING_UNACCESSIBLE || r === RATING_NOT_NEAR_WATER;
+}
+
+function isStarRating(r) {
+  return r >= 1 && r <= 5;
+}
+
+function ratingDisplayHtml(r) {
+  if (r === RATING_UNACCESSIBLE)   return '<span style="color:#ef9a9a"> 🚫 No Access</span>';
+  if (r === RATING_NOT_NEAR_WATER) return '<span style="color:#81d4fa"> 💧 Not near water</span>';
+  if (isStarRating(r))             return `<span class="res-stars"> ${'★'.repeat(r)}${'☆'.repeat(5 - r)}</span>`;
+  return '';
+}
+
+function ratingSaveLabel(r) {
+  if (r === RATING_UNACCESSIBLE)   return 'No Access (hidden next search)';
+  if (r === RATING_NOT_NEAR_WATER) return 'Not near water (hidden next search)';
+  if (isStarRating(r))             return `${r} star(s)`;
+  return 'rating saved';
 }
 
 // ─────────────────────────────────────────────
@@ -1061,16 +1087,16 @@ async function startSearch() {
       .filter(s => s && s.score > -20);
     scored.sort((a, b) => b.score - a.score);
 
-    // Step 5: Apply personal ratings — hide Unaccessable spots
+    // Step 5: Apply personal ratings — hide No Access / Not near water spots
     scored = scored.filter(s => {
       const r = getRatingForSpot(s.lat, s.lon);
-      if (r === RATING_UNACCESSIBLE) return false;
+      if (isHiddenRating(r)) return false;
       s.yourRating = r;
       return true;
     });
 
     if (!scored.length) {
-      throw new Error('All spots in this area are marked "No Access" on this device.\nTry another location or clear your ratings.');
+      throw new Error('All spots in this area are hidden by your ratings on this device.\nTry another location or update your ratings.');
     }
 
     // Step 6: Cluster
@@ -1092,7 +1118,7 @@ async function startSearch() {
     else log('  ✓ Driving times calculated', 'good');
 
     // Step 8: Recommendation
-    const rated = top.filter(s => s.yourRating != null);
+    const rated = top.filter(s => isStarRating(s.yourRating));
     const best  = rated.length
       ? rated.sort((a, b) => (b.yourRating - a.yourRating) || (b.score - a.score))[0]
       : top.slice().sort((a, b) => b.score - a.score)[0];
@@ -1179,7 +1205,11 @@ function buildPopup(s, i) {
   if (s.warnings.length) p += `<div style="margin-top:5px">${s.warnings.map(x => `<div class="prow pwarn">⚠ ${esc(x)}</div>`).join('')}</div>`;
   if (s.driveMins === null) p += `<div class="pno-route">⚠ No driving route found — may not be car-accessible</div>`;
   else if (s.driveMins)     p += `<div class="pdrive">🚗 ~${s.driveMins} min drive</div>`;
-  if (s.yourRating != null) {
+  if (s.yourRating === RATING_UNACCESSIBLE) {
+    p += `<div class="prow prec">Your rating: 🚫 No Access</div>`;
+  } else if (s.yourRating === RATING_NOT_NEAR_WATER) {
+    p += `<div class="prow prec">Your rating: 💧 Not near water</div>`;
+  } else if (isStarRating(s.yourRating)) {
     const stars = '★'.repeat(s.yourRating) + '☆'.repeat(5 - s.yourRating);
     p += `<div class="prow prec">Your stars: ${stars}</div>`;
   }
@@ -1204,9 +1234,7 @@ function renderSidebar(spots) {
   spots.forEach((s, i) => {
     const li = document.createElement('li');
     if (s.isRecommended) li.className = 'recommended';
-    const stars = s.yourRating != null
-      ? `<span class="res-stars"> ${'★'.repeat(s.yourRating)}${'☆'.repeat(5 - s.yourRating)}</span>`
-      : '';
+    const stars = s.yourRating != null ? ratingDisplayHtml(s.yourRating) : '';
     const rec = s.isRecommended ? ' <span style="color:#9b59b6">★ Recommended</span>' : '';
     li.innerHTML = `
       <div class="res-name">${i+1}. ${esc(s.name)}${rec}</div>
@@ -1290,13 +1318,10 @@ function saveRating() {
   // Update sidebar row
   const li = document.querySelectorAll('#results-list li')[ratingSpotIndex];
   if (li) {
-    const stars = currentRating === RATING_UNACCESSIBLE
-      ? '<span style="color:#ef9a9a"> 🚫 No Access</span>'
-      : `<span class="res-stars"> ${'★'.repeat(currentRating)}${'☆'.repeat(5 - currentRating)}</span>`;
+    const stars = ratingDisplayHtml(currentRating);
     const scoreDiv = li.querySelector('.res-score');
     if (scoreDiv) {
-      // Remove old stars
-      scoreDiv.querySelectorAll('.res-stars, [style*="ef9a9a"]').forEach(el => el.remove());
+      scoreDiv.querySelectorAll('.res-stars, [style*="ef9a9a"], [style*="81d4fa"]').forEach(el => el.remove());
       scoreDiv.insertAdjacentHTML('beforeend', stars);
     }
   }
@@ -1310,8 +1335,7 @@ function saveRating() {
     marker.setPopupContent(buildPopup(spot, ratingSpotIndex));
   }
 
-  const label = currentRating === RATING_UNACCESSIBLE ? 'No Access (hidden next search)' : `${currentRating} star(s)`;
-  log(`✓ Rating saved: "${spot.name}" → ${label}`, 'good');
+  log(`✓ Rating saved: "${spot.name}" → ${ratingSaveLabel(currentRating)}`, 'good');
   closeRatingModal();
 }
 
