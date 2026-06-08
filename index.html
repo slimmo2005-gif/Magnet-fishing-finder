@@ -267,11 +267,99 @@
     .map-legend h4 { color: #5bc8f5; font-size: 13px; margin-bottom: 5px; }
     .dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 
+    /* ── Search time warning ── */
+    .search-warning {
+      background: rgba(255, 152, 0, 0.12);
+      border: 1px solid rgba(255, 152, 0, 0.45);
+      border-radius: 7px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #ffcc80;
+      margin-bottom: 14px;
+    }
+    .search-warning strong { color: #ffb74d; }
+
+    /* ── Central progress overlay ── */
+    #progress-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      background: rgba(8, 12, 20, 0.82);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    #progress-overlay.open { display: flex; }
+    #progress-card {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      width: 420px;
+      max-width: 100%;
+      padding: 28px 28px 24px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+      text-align: center;
+    }
+    #progress-card h2 {
+      color: var(--accent);
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+    #progress-warning {
+      font-size: 12px;
+      line-height: 1.55;
+      color: #ffcc80;
+      background: rgba(255, 152, 0, 0.1);
+      border: 1px solid rgba(255, 152, 0, 0.35);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 18px;
+      text-align: left;
+    }
+    #progress-step {
+      font-size: 14px;
+      color: var(--fg);
+      margin-bottom: 14px;
+      min-height: 2.6em;
+      line-height: 1.35;
+    }
+    #progress-pct {
+      font-size: 36px;
+      font-weight: bold;
+      color: var(--accent);
+      margin-bottom: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    #progress-bar-outer {
+      height: 14px;
+      background: var(--bg-dark);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+    #progress-bar-inner {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--blue), var(--accent));
+      border-radius: 8px;
+      transition: width 0.45s ease;
+    }
+    #progress-hint {
+      font-size: 11px;
+      color: var(--fg-dim);
+      line-height: 1.5;
+    }
+
     /* ── Responsive: stack on narrow screens ── */
     @media (max-width: 640px) {
       #main { flex-direction: column; }
       #sidebar { width: 100%; border-right: none; border-bottom: 2px solid var(--border); }
       #map { min-height: 60vh; }
+      #progress-card { padding: 22px 18px 18px; }
+      #progress-pct { font-size: 30px; }
     }
   </style>
 </head>
@@ -315,6 +403,11 @@
         </div>
       </div>
 
+      <div class="search-warning">
+        <strong>⏳ Please allow 30–90 seconds per search.</strong><br>
+        The app downloads live map data from OpenStreetMap. Larger radius searches take longer — please keep this tab open.
+      </div>
+
       <!-- Search button -->
       <button class="btn btn-blue" id="search-btn" onclick="startSearch()">🔍 Find Magnet Fishing Spots</button>
 
@@ -347,6 +440,25 @@
   <div id="map"></div>
 
 </div><!-- /#main -->
+
+
+<!-- ═══════════════════════════════════════════
+     CENTRAL PROGRESS OVERLAY
+════════════════════════════════════════════ -->
+<div id="progress-overlay" aria-live="polite" aria-busy="true">
+  <div id="progress-card">
+    <h2>🧲 Searching for spots…</h2>
+    <div id="progress-warning">
+      <strong>This can take a minute or two.</strong> We're querying OpenStreetMap servers for piers, bridges, railways and more. Please don't close or refresh this tab until the search finishes.
+    </div>
+    <div id="progress-pct">0%</div>
+    <div id="progress-bar-outer">
+      <div id="progress-bar-inner"></div>
+    </div>
+    <div id="progress-step">Starting search…</div>
+    <div id="progress-hint">Typical time: 30–90 seconds depending on search radius and server load.</div>
+  </div>
+</div>
 
 
 <!-- ═══════════════════════════════════════════
@@ -529,18 +641,54 @@ function log(text, cls = '') {
 function clearLog() { logEl.innerHTML = ''; }
 
 // ─────────────────────────────────────────────
-// PROGRESS BAR
+// PROGRESS  (central overlay + sidebar mini bar)
 // ─────────────────────────────────────────────
 
 const pbar = document.getElementById('pbar');
-function startProgress() {
-  pbar.style.width = '0';
-  pbar.classList.add('indeterminate');
-}
-function stopProgress() {
+const progressOverlay = document.getElementById('progress-overlay');
+const progressPctEl   = document.getElementById('progress-pct');
+const progressBarInner = document.getElementById('progress-bar-inner');
+const progressStepEl  = document.getElementById('progress-step');
+
+let progressPct = 0;
+
+function setProgress(pct, stepText) {
+  progressPct = Math.min(100, Math.max(0, Math.round(pct)));
+  progressPctEl.textContent = `${progressPct}%`;
+  progressBarInner.style.width = `${progressPct}%`;
+  if (stepText) progressStepEl.textContent = stepText;
   pbar.classList.remove('indeterminate');
-  pbar.style.width = '100%';
-  setTimeout(() => { pbar.style.width = '0'; }, 800);
+  pbar.style.width = `${progressPct}%`;
+}
+
+function showProgressOverlay() {
+  progressPct = 0;
+  setProgress(0, 'Starting search…');
+  progressOverlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function hideProgressOverlay() {
+  progressOverlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function startProgress() {
+  showProgressOverlay();
+}
+
+function stopProgress() {
+  setProgress(100, 'Done!');
+  setTimeout(() => {
+    hideProgressOverlay();
+    pbar.style.width = '0';
+  }, 600);
+}
+
+function abortProgress(message) {
+  hideProgressOverlay();
+  pbar.style.width = '0';
+  if (message) progressStepEl.textContent = message;
 }
 
 // ─────────────────────────────────────────────
@@ -859,15 +1007,18 @@ async function startSearch() {
 
   try {
     // Step 1: Geocode
+    setProgress(5, 'Looking up your starting location…');
     log(`Looking up: ${locInput}`, 'info');
     const geo = await geocode(locInput);
     const { lat, lon, display } = geo;
     log(`✓ Found: ${display.split(',').slice(0,3).join(',')}`, 'good');
+    setProgress(12, 'Location found — please confirm in the popup…');
 
     // Ask to confirm
     const short = display.split(',').slice(0,3).join(',');
     if (!confirm(`Found this location:\n\n${display.slice(0,180)}\n\nCoordinates: ${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n\nIs this correct?`)) {
       log('Search cancelled — update the location and try again.', 'warn');
+      abortProgress();
       stopSearch();
       return;
     }
@@ -875,15 +1026,19 @@ async function startSearch() {
     const radiusM = radiusKm * 1000;
 
     // Step 2: Fetch candidates
+    setProgress(18, `Searching piers, jetties & wharves within ${radiusKm} km…`);
     log(`Searching piers, jetties and wharves within ${radiusKm} km…`, 'info');
     const piers = await fetchCandidates(lat, lon, radiusM);
     log(`  ✓ ${piers.length} piers / jetties / wharves found`, 'good');
+    setProgress(42, `Found ${piers.length} piers / jetties / wharves — pausing briefly for API limits…`);
 
     await sleep(3000);
 
+    setProgress(48, 'Searching bridges over named rivers…');
     log('Searching bridges over rivers…', 'info');
     const bridges = await fetchBridges(lat, lon, radiusM);
     log(`  ✓ ${bridges.length} bridges over named rivers found`, 'good');
+    setProgress(62, `Found ${bridges.length} bridges — loading context data…`);
 
     const allCandidates = [...piers, ...bridges];
     if (!allCandidates.length) {
@@ -893,9 +1048,11 @@ async function startSearch() {
     await sleep(3000);
 
     // Step 3: Context
+    setProgress(68, 'Fetching industrial zones, railways & parking…');
     log('Fetching context data (industrial zones, railways, parking)…', 'info');
     const context = await fetchContext(lat, lon, radiusM);
     log(`  ✓ ${context.length} context features loaded`, 'good');
+    setProgress(78, `Scoring ${allCandidates.length} candidate spots…`);
 
     // Step 4: Score
     log('Scoring and ranking spots…', 'info');
@@ -917,11 +1074,13 @@ async function startSearch() {
     }
 
     // Step 6: Cluster
+    setProgress(84, 'Clustering nearby spots…');
     const clustered = clusterSpots(scored);
     const top = clustered.slice(0, MAX_RESULTS);
     log(`  ✓ ${top.length} well-spaced spots selected`, 'good');
 
     // Step 7: Driving times
+    setProgress(90, 'Calculating driving times…');
     log('Calculating driving times…', 'info');
     const times = await getDrivingTimes(lat, lon, top);
     let hasNoRoute = false;
@@ -940,6 +1099,7 @@ async function startSearch() {
     best.isRecommended = true;
 
     // Step 9: Render
+    setProgress(96, 'Building your map…');
     currentSpots = top;
     renderMap(top, lat, lon, display, radiusKm);
     renderSidebar(top);
@@ -954,7 +1114,7 @@ async function startSearch() {
     document.getElementById('hdr-status').textContent = `${top.length} spots · ${radiusKm} km · ${short.split(',')[0]}`;
 
   } catch (e) {
-    stopProgress();
+    abortProgress();
     log(`\n✗ ${e.message}`, 'error');
     alert(`Error: ${e.message}`);
   } finally {
