@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🧲 Magnet Fishing Spot Finder</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-dark:  #0f1926;
+      --bg:       #1a2540;
+      --bg-input: #243050;
+      --accent:   #5bc8f5;
+      --blue:     #1565c0;
+      --green:    #1b7a2f;
+      --purple:   #6a1b9a;
+      --fg:       #c0d0e8;
+      --fg-dim:   #7a8db0;
+      --border:   #2a4080;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: var(--bg-dark);
+      color: var(--fg);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    #hdr {
+      background: var(--bg);
+      border-bottom: 2px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #hdr h1 { font-size: 18px; color: var(--accent); }
+    #hdr .sub { font-size: 11px; color: var(--fg-dim); margin-top: 3px; }
+
+    /* ── Layout ── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 340px;
+      min-width: 280px;
+      background: var(--bg);
+      border-right: 2px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    #sidebar-inner { padding: 18px 18px 24px; }
+
+    label.field-label {
+      display: block;
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      margin-bottom: 5px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 9px 11px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: #e8eeff;
+      font-size: 14px;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: var(--accent); }
+
+    .radius-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .radius-row label {
+      cursor: pointer;
+      padding: 5px 11px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--fg-dim);
+      transition: background .15s, color .15s;
+      user-select: none;
+    }
+    .radius-row input[type="radio"] { display: none; }
+    .radius-row input[type="radio"]:checked + label {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: 7px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-blue  { background: var(--blue);   color: #fff; }
+    .btn-blue:hover  { background: #1976d2; }
+    .btn-green { background: var(--green);  color: #fff; }
+    .btn-green:hover { background: #2e7d32; }
+    .btn-purple{ background: var(--purple); color: #fff; }
+    .btn-purple:hover{ background: #8e24aa; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+    /* ── Progress log ── */
+    #log {
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 9px 10px;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      min-height: 100px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .log-info  { color: var(--accent); }
+    .log-good  { color: #4caf50; }
+    .log-warn  { color: #ff9800; }
+    .log-error { color: #f44336; }
+
+    /* ── Progress bar ── */
+    #pbar-wrap {
+      height: 5px;
+      background: var(--bg-dark);
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    #pbar {
+      height: 100%;
+      width: 0;
+      background: var(--blue);
+      transition: width .3s;
+    }
+    #pbar.indeterminate {
+      width: 40%;
+      animation: slide 1.2s linear infinite;
+    }
+    @keyframes slide {
+      0%   { margin-left: -40%; }
+      100% { margin-left: 100%; }
+    }
+
+    /* ── Results list ── */
+    #results-list { list-style: none; margin-top: 8px; }
+    #results-list li {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-dark);
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: border-color .15s;
+      font-size: 12px;
+    }
+    #results-list li:hover { border-color: var(--accent); }
+    #results-list li.recommended { border-color: #9b59b6; background: #1e1030; }
+    .res-name { font-weight: bold; font-size: 13px; }
+    .res-score { font-size: 11px; color: var(--fg-dim); }
+    .res-stars { color: #f39c12; font-size: 13px; }
+
+    /* ── Map ── */
+    #map {
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ── Rating modal ── */
+    #rating-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+    #rating-modal.open { display: flex; }
+    #rating-box {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      width: 380px;
+      max-width: 95vw;
+      padding: 24px;
+    }
+    #rating-box h2 { color: var(--accent); font-size: 16px; margin-bottom: 4px; }
+    #rating-box .rspot-name { font-size: 13px; color: var(--fg-dim); margin-bottom: 16px; }
+    .star-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .star-opt {
+      flex: 1;
+      min-width: 50px;
+      padding: 8px 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--fg-dim);
+      transition: background .12s, border-color .12s;
+    }
+    .star-opt:hover { border-color: var(--accent); }
+    .star-opt.selected { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .star-opt.unacc.selected { background: #b71c1c; border-color: #b71c1c; }
+    .star-opt.unacc { color: #ef9a9a; }
+    .rmodal-btns { display: flex; gap: 10px; }
+    .rmodal-btns .btn { flex: 1; }
+
+    /* ── Popup styling ── */
+    .leaflet-popup-content-wrapper { border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,.3); }
+    .leaflet-popup-content { font-family: Arial, sans-serif; font-size: 13px; min-width: 250px; max-width: 320px; }
+    .ptitle { font-size: 15px; font-weight: bold; color: #1a237e; margin-bottom: 4px; }
+    .pscore { font-size: 20px; font-weight: bold; margin-bottom: 7px; }
+    .prow   { margin: 3px 0; font-size: 12px; }
+    .pgood  { color: #1b5e20; }
+    .pwarn  { color: #bf360c; }
+    .prec   { color: #9b59b6; font-weight: bold; }
+    .pdrive { font-size: 14px; font-weight: bold; margin-top: 8px; padding: 6px 10px; background: #e8f5e9; border-radius: 6px; color: #1b5e20; }
+    .pno-route { font-size: 13px; margin-top: 8px; padding: 5px 10px; background: #fff3e0; border-radius: 6px; color: #e65100; }
+    .pmuted { color: #666; font-size: 11px; margin-top: 5px; }
+    .pglink { display: inline-block; margin-top: 9px; padding: 5px 12px; background: #1565c0; color: white; border-radius: 5px; text-decoration: none; font-size: 12px; font-weight: bold; }
+    .pglink:hover { background: #1976d2; }
+    .prate-btn { display: inline-block; margin-top: 6px; margin-left: 6px; padding: 5px 12px; background: #6a1b9a; color: white; border-radius: 5px; text-decoration: none; font-size: 12px; font-weight: bold; cursor: pointer; border: none; }
+    .prate-btn:hover { background: #8e24aa; }
+
+    /* ── Legend ── */
+    .map-legend {
+      background: rgba(18,25,43,.93);
+      padding: 11px 15px;
+      border-radius: 8px;
+      border: 1px solid #2a4080;
+      font-size: 12px;
+      line-height: 1.8;
+      color: #dde;
+      min-width: 185px;
+    }
+    .map-legend h4 { color: #5bc8f5; font-size: 13px; margin-bottom: 5px; }
+    .dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+    /* ── Responsive: stack on narrow screens ── */
+    @media (max-width: 640px) {
+      #main { flex-direction: column; }
+      #sidebar { width: 100%; border-right: none; border-bottom: 2px solid var(--border); }
+      #map { min-height: 60vh; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════ -->
+<div id="hdr">
+  <div>
+    <h1>🧲 Magnet Fishing Spot Finder</h1>
+    <div class="sub">Finds good spots near rivers, jetties, bridges and industrial waterways &mdash; powered by OpenStreetMap</div>
+  </div>
+  <div id="hdr-status" style="font-size:11px;color:var(--fg-dim);text-align:right">Click any pin for details<br>Toggle satellite view (top right)</div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     MAIN LAYOUT
+════════════════════════════════════════════ -->
+<div id="main">
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+    <div id="sidebar-inner">
+
+      <!-- Location -->
+      <div style="margin-bottom:14px">
+        <label class="field-label" for="loc-input">Starting Location</label>
+        <input type="text" id="loc-input" placeholder="e.g. Footscray, Victoria, Australia" value="South Kingsville, Victoria, Australia">
+      </div>
+
+      <!-- Radius -->
+      <div style="margin-bottom:16px">
+        <label class="field-label">Search Radius</label>
+        <div class="radius-row">
+          <input type="radio" name="radius" id="r5"  value="5">  <label for="r5">5 km</label>
+          <input type="radio" name="radius" id="r10" value="10"> <label for="r10">10 km</label>
+          <input type="radio" name="radius" id="r20" value="20" checked> <label for="r20">20 km</label>
+          <input type="radio" name="radius" id="r30" value="30"> <label for="r30">30 km</label>
+          <input type="radio" name="radius" id="r50" value="50"> <label for="r50">50 km</label>
+        </div>
+      </div>
+
+      <!-- Search button -->
+      <button class="btn btn-blue" id="search-btn" onclick="startSearch()">🔍 Find Magnet Fishing Spots</button>
+
+      <hr class="divider">
+
+      <!-- Progress bar -->
+      <div id="pbar-wrap"><div id="pbar"></div></div>
+
+      <!-- Log -->
+      <div id="log"></div>
+
+      <hr class="divider">
+
+      <!-- Open map / Rate buttons -->
+      <button class="btn btn-green" id="view-btn" style="margin-bottom:8px" disabled onclick="scrollToMap()">🗺 View Map</button>
+      <button class="btn btn-purple" id="rate-btn" disabled onclick="openRatingPanel()">⭐ Rate Top Spots (saved on this device)</button>
+
+      <hr class="divider">
+
+      <!-- Results list -->
+      <div id="results-section" style="display:none">
+        <label class="field-label">Top Spots</label>
+        <ul id="results-list"></ul>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Map ── -->
+  <div id="map"></div>
+
+</div><!-- /#main -->
+
+
+<!-- ═══════════════════════════════════════════
+     RATING MODAL
+════════════════════════════════════════════ -->
+<div id="rating-modal">
+  <div id="rating-box">
+    <h2>⭐ Rate This Spot</h2>
+    <div class="rspot-name" id="rspot-name"></div>
+
+    <label class="field-label" style="margin-bottom:8px">Your Rating</label>
+    <div class="star-row">
+      <div class="star-opt unacc" data-val="0" onclick="selectRating(0)">🚫<br>No Access</div>
+      <div class="star-opt" data-val="1" onclick="selectRating(1)">★<br>1 star</div>
+      <div class="star-opt" data-val="2" onclick="selectRating(2)">★★<br>2 stars</div>
+      <div class="star-opt" data-val="3" onclick="selectRating(3)">★★★<br>3 stars</div>
+      <div class="star-opt" data-val="4" onclick="selectRating(4)">★★★★<br>4 stars</div>
+      <div class="star-opt" data-val="5" onclick="selectRating(5)">★★★★★<br>5 stars</div>
+    </div>
+
+    <div id="rating-note" style="font-size:11px;color:var(--fg-dim);margin-bottom:14px">
+      "No Access" = this spot will be hidden in future searches on this device.
+    </div>
+
+    <div class="rmodal-btns">
+      <button class="btn btn-blue" onclick="saveRating()">Save Rating</button>
+      <button class="btn btn-green" onclick="closeRatingModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────
+// CONFIGURATION  (mirrors magnet_finder.py)
+// ─────────────────────────────────────────────
+
+const MAX_RESULTS        = 35;
+const MIN_CLUSTER_DIST_M = 300;
+const RATING_UNACCESSIBLE = 0;
+const RATING_DIST_TOL_M   = 80;
+const RATINGS_KEY         = 'mff_ratings_v1';  // localStorage key
+
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+const OVERPASS_SERVERS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+const OSRM_URL = 'https://router.project-osrm.org/table/v1/driving';
+
+const NAV_AID_KEYWORDS = [
+  'front light','rear light','range light','channel marker',
+  'light tower','navigation light','leading light',
+  'buoy','beacon',' beacon','fairway',
+];
+
+const SCORE = {
+  named_pier_jetty_wharf:   30,
+  unnamed_pier_jetty:       15,
+  slipway_boat_ramp:        12,
+  ferry_terminal:           10,
+  pedestrian_bridge:        20,
+  road_bridge:              13,
+  disused_rail_bridge:      16,
+  rail_bridge:               8,
+  industrial_under_200m:    28,
+  industrial_200_500m:      18,
+  industrial_500_1000m:      8,
+  railway_under_300m:       22,
+  railway_300_700m:         14,
+  railway_700_1500m:         6,
+  parking_under_200m:       15,
+  parking_200_500m:          8,
+  on_named_river:           10,
+  private_access:          -65,
+  marina_spot:             -20,
+  marina_within_200m:      -35,
+  marina_within_400m:      -15,
+  new_development_nearby:  -25,
+  active_port_nearby:      -12,
+  no_drive_route:          -40,
+};
+
+// ─────────────────────────────────────────────
+// MAP SETUP
+// ─────────────────────────────────────────────
+
+const map = L.map('map').setView([-37.8, 144.9], 11);
+const streetLayer = L.tileLayer(
+  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }
+);
+const satLayer = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
+);
+streetLayer.addTo(map);
+L.control.layers({ 'Street Map': streetLayer, 'Satellite': satLayer }, {}, { position: 'topright' }).addTo(map);
+
+// Legend
+const legend = L.control({ position: 'bottomleft' });
+legend.onAdd = () => {
+  const d = L.DomUtil.create('div', 'map-legend');
+  d.innerHTML = `
+    <h4>🧲 Spot Rating</h4>
+    <div><span class="dot" style="background:#27ae60"></span>Excellent (65+)</div>
+    <div><span class="dot" style="background:#f39c12"></span>Good &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(45–64)</div>
+    <div><span class="dot" style="background:#e67e22"></span>Fair &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(20–44)</div>
+    <div><span class="dot" style="background:#c0392b"></span>Poor &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(&lt;20)</div>
+    <div><span class="dot" style="background:#5bc8f5"></span>Start point</div>
+    <div style="margin-top:6px;color:#9b59b6;font-weight:bold">★ = Your recommendation</div>
+    <div style="margin-top:5px;font-size:10px;color:#8a9cc0">Click pin → rate &amp; Google Maps</div>`;
+  return d;
+};
+legend.addTo(map);
+
+let markerLayer = L.layerGroup().addTo(map);
+let currentSpots = [];
+let ratingSpotIndex = null;
+let currentRating = null;
+
+// ─────────────────────────────────────────────
+// LOCAL RATINGS  (localStorage)
+// ─────────────────────────────────────────────
+
+function loadRatings() {
+  try {
+    return JSON.parse(localStorage.getItem(RATINGS_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveRatings(list) {
+  localStorage.setItem(RATINGS_KEY, JSON.stringify(list));
+}
+
+function distM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2
+          + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+          * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function findRatingEntry(lat, lon) {
+  const list = loadRatings();
+  let bestIdx = null, bestD = null;
+  for (let i = 0; i < list.length; i++) {
+    const d = distM(lat, lon, list[i].lat, list[i].lon);
+    if (d <= RATING_DIST_TOL_M && (bestD === null || d < bestD)) {
+      bestD = d; bestIdx = i;
+    }
+  }
+  return bestIdx !== null ? { entry: list[bestIdx], idx: bestIdx, list } : { entry: null, idx: null, list };
+}
+
+function getRatingForSpot(lat, lon) {
+  const { entry } = findRatingEntry(lat, lon);
+  return entry ? entry.rating : null;
+}
+
+// ─────────────────────────────────────────────
+// LOGGING
+// ─────────────────────────────────────────────
+
+const logEl = document.getElementById('log');
+function log(text, cls = '') {
+  const line = document.createElement('div');
+  line.className = cls ? `log-${cls}` : '';
+  line.textContent = text;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function clearLog() { logEl.innerHTML = ''; }
+
+// ─────────────────────────────────────────────
+// PROGRESS BAR
+// ─────────────────────────────────────────────
+
+const pbar = document.getElementById('pbar');
+function startProgress() {
+  pbar.style.width = '0';
+  pbar.classList.add('indeterminate');
+}
+function stopProgress() {
+  pbar.classList.remove('indeterminate');
+  pbar.style.width = '100%';
+  setTimeout(() => { pbar.style.width = '0'; }, 800);
+}
+
+// ─────────────────────────────────────────────
+// API HELPERS
+// ─────────────────────────────────────────────
+
+async function geocode(location) {
+  const params = new URLSearchParams({ q: location, format: 'json', limit: '1', countrycodes: 'au' });
+  let res = await fetch(`${NOMINATIM_URL}?${params}`, {
+    headers: { 'Accept-Language': 'en', 'User-Agent': 'MagnetFishingFinder/2.0 (personal use)' }
+  });
+  let data = await res.json();
+  if (!data.length) {
+    // Retry without country restriction
+    const params2 = new URLSearchParams({ q: location, format: 'json', limit: '1' });
+    res = await fetch(`${NOMINATIM_URL}?${params2}`, {
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'MagnetFishingFinder/2.0 (personal use)' }
+    });
+    data = await res.json();
+  }
+  if (!data.length) throw new Error(`Could not find "${location}".\nTry a more specific name, e.g. "Footscray, Victoria, Australia"`);
+  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
+}
+
+async function overpassQuery(query, servers = OVERPASS_SERVERS) {
+  for (const server of servers) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(server, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `data=${encodeURIComponent(query)}`,
+        });
+        if (res.status === 429) {
+          const wait = 15 * (attempt + 1);
+          log(`  API busy — waiting ${wait}s…`, 'warn');
+          await sleep(wait * 1000);
+          continue;
+        }
+        if (res.status === 504) { await sleep(8000); continue; }
+        if (!res.ok) break;
+        const json = await res.json();
+        return json.elements || [];
+      } catch (e) {
+        if (attempt < 2) { await sleep(5000); }
+      }
+    }
+    log('  Switching to backup server…', 'warn');
+    await sleep(3000);
+  }
+  log('  WARNING: Could not load some data — results may be incomplete.', 'warn');
+  return [];
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function elCentre(el) {
+  if (el.type === 'node') return [el.lat, el.lon];
+  const c = el.center || {};
+  return [c.lat, c.lon];
+}
+
+// ─────────────────────────────────────────────
+// OVERPASS QUERIES  (mirrors Python fetch_*)
+// ─────────────────────────────────────────────
+
+async function fetchCandidates(lat, lon, radiusM) {
+  const q = `
+[out:json][timeout:90];
+(
+  node["man_made"~"pier|jetty|wharf"][!"seamark:type"][man_made!~"beacon|lighthouse"](around:${radiusM},${lat},${lon});
+  way["man_made"~"pier|jetty|wharf"][!"seamark:type"](around:${radiusM},${lat},${lon});
+  node["leisure"="slipway"](around:${radiusM},${lat},${lon});
+  way["leisure"="slipway"](around:${radiusM},${lat},${lon});
+  node["amenity"="ferry_terminal"](around:${radiusM},${lat},${lon});
+  way["amenity"="ferry_terminal"](around:${radiusM},${lat},${lon});
+  node["waterway"~"dock|boatyard"](around:${radiusM},${lat},${lon});
+  way["waterway"~"dock|boatyard"](around:${radiusM},${lat},${lon});
+);
+out center tags;`;
+  return overpassQuery(q);
+}
+
+async function fetchBridges(lat, lon, radiusM) {
+  const q = `
+[out:json][timeout:60];
+way["waterway"~"river|canal"]["name"](around:${radiusM},${lat},${lon}) -> .rivers;
+(
+  way["bridge"="yes"]["highway"~"footway|path|pedestrian|cycleway"](around.rivers:100);
+  way["bridge"="yes"]["highway"~"primary|secondary|tertiary|residential|unclassified|service"](around.rivers:100);
+  way["bridge"="yes"]["railway"~"rail|disused|abandoned"](around.rivers:100);
+);
+out center tags;`;
+  return overpassQuery(q);
+}
+
+async function fetchContext(lat, lon, radiusM) {
+  const q = `
+[out:json][timeout:90];
+(
+  way["landuse"="industrial"](around:${radiusM},${lat},${lon});
+  relation["landuse"="industrial"](around:${radiusM},${lat},${lon});
+  way["railway"~"rail|disused|abandoned|light_rail"](around:${radiusM},${lat},${lon});
+  node["amenity"="parking"](around:${radiusM},${lat},${lon});
+  way["amenity"="parking"](around:${radiusM},${lat},${lon});
+  way["landuse"~"retail|commercial"](around:${radiusM},${lat},${lon});
+  node["leisure"="marina"](around:${radiusM},${lat},${lon});
+  way["leisure"="marina"](around:${radiusM},${lat},${lon});
+  way["landuse"~"port|harbour"](around:${radiusM},${lat},${lon});
+  node["landuse"~"port|harbour"](around:${radiusM},${lat},${lon});
+  way["waterway"~"river|stream|canal"]["name"](around:${radiusM},${lat},${lon});
+);
+out center tags;`;
+  return overpassQuery(q);
+}
+
+// ─────────────────────────────────────────────
+// SCORING  (mirrors Python score_spot())
+// ─────────────────────────────────────────────
+
+function scoreSpot(candidate, context, startLat, startLon) {
+  const tags = candidate.tags || {};
+  const [lat, lon] = elCentre(candidate);
+  if (lat == null) return null;
+
+  if (tags['seamark:type'] || ['beacon','lighthouse','light_vessel'].includes(tags.man_made)) return null;
+
+  const spotName = (tags.name || '').trim();
+  const nameLower = spotName.toLowerCase();
+  if (NAV_AID_KEYWORDS.some(kw => nameLower.includes(kw))) return null;
+
+  let score = 0;
+  const reasons = [], warnings = [];
+
+  const access = (tags.access || '').toLowerCase();
+  if (['private','no','restricted','permit'].includes(access)) {
+    score += SCORE.private_access;
+    warnings.push('Marked as private / restricted');
+  }
+
+  if (tags.leisure === 'marina' || nameLower.includes('marina')) {
+    score += SCORE.marina_spot;
+    warnings.push('Marina — verify public access before visiting');
+  }
+
+  const manMade   = tags.man_made  || '';
+  const leisure   = tags.leisure   || '';
+  const amenity   = tags.amenity   || '';
+  const waterway  = tags.waterway  || '';
+  const highway   = tags.highway   || '';
+  const railway   = tags.railway   || '';
+  const isBridge  = tags.bridge === 'yes';
+  let accessLabel = 'access point';
+  let displayName = spotName;
+
+  if (isBridge) {
+    if (['footway','path','pedestrian','cycleway'].includes(highway)) {
+      score += SCORE.pedestrian_bridge; reasons.push('Pedestrian bridge over river');
+      accessLabel = 'pedestrian bridge';
+    } else if (['disused','abandoned'].includes(railway)) {
+      score += SCORE.disused_rail_bridge; reasons.push('Disused railway bridge over river');
+      accessLabel = 'disused rail bridge';
+    } else if (railway === 'rail') {
+      score += SCORE.rail_bridge; reasons.push('Railway bridge over river');
+      accessLabel = 'railway bridge';
+      warnings.push('Railway bridge — verify pedestrian access before visiting');
+    } else {
+      score += SCORE.road_bridge; reasons.push('Road bridge over river');
+      accessLabel = 'road bridge';
+      warnings.push('Road bridge — check for footpath / walkway');
+    }
+  } else if (['pier','jetty','wharf'].includes(manMade) || amenity === 'ferry_terminal') {
+    if (displayName) {
+      score += SCORE.named_pier_jetty_wharf;
+      reasons.push(`Named ${manMade || amenity}: ${displayName}`);
+    } else {
+      score += SCORE.unnamed_pier_jetty;
+      reasons.push('Pier / jetty access point');
+    }
+    accessLabel = manMade || amenity;
+  } else if (leisure === 'slipway') {
+    score += SCORE.slipway_boat_ramp; reasons.push('Boat ramp / slipway');
+    accessLabel = 'slipway';
+  } else if (['dock','boatyard'].includes(waterway)) {
+    score += SCORE.unnamed_pier_jetty; reasons.push('Dock / boatyard');
+    accessLabel = waterway;
+  }
+
+  // Context proximity
+  const inf = Infinity;
+  const closest = { industrial: inf, railway: inf, parking: inf, newDev: inf, port: inf, namedRiver: inf, marina: inf };
+
+  for (const feat of context) {
+    const [fLat, fLon] = elCentre(feat);
+    if (fLat == null) continue;
+    const d = distM(lat, lon, fLat, fLon);
+    const ft = feat.tags || {};
+    const lu = ft.landuse || '';
+    if (lu === 'industrial')                                              closest.industrial  = Math.min(closest.industrial,  d);
+    if (['rail','disused','abandoned','light_rail'].includes(ft.railway)) closest.railway     = Math.min(closest.railway,     d);
+    if (ft.amenity === 'parking')                                         closest.parking     = Math.min(closest.parking,     d);
+    if (['retail','commercial'].includes(lu))                             closest.newDev      = Math.min(closest.newDev,      d);
+    if (['port','harbour'].includes(lu))                                  closest.port        = Math.min(closest.port,        d);
+    if (['river','stream','canal'].includes(ft.waterway) && ft.name)      closest.namedRiver  = Math.min(closest.namedRiver,  d);
+    if (ft.leisure === 'marina')                                          closest.marina      = Math.min(closest.marina,      d);
+  }
+
+  const ind = closest.industrial;
+  if      (ind < 200)  { score += SCORE.industrial_under_200m;  reasons.push(`Industrial zone ${~~ind}m away`); }
+  else if (ind < 500)  { score += SCORE.industrial_200_500m;    reasons.push(`Industrial zone ${~~ind}m away`); }
+  else if (ind < 1000) { score += SCORE.industrial_500_1000m;   reasons.push(`Industrial zone ${~~ind}m away`); }
+
+  const rly = closest.railway;
+  if      (rly < 300)  { score += SCORE.railway_under_300m;  reasons.push(`Railway line ${~~rly}m away`); }
+  else if (rly < 700)  { score += SCORE.railway_300_700m;    reasons.push(`Railway line ${~~rly}m away`); }
+  else if (rly < 1500) { score += SCORE.railway_700_1500m;   reasons.push(`Railway line ${~~rly}m away`); }
+
+  const prk = closest.parking;
+  if      (prk < 200)  { score += SCORE.parking_under_200m;  reasons.push(`Parking ${~~prk}m away`); }
+  else if (prk < 500)  { score += SCORE.parking_200_500m;    reasons.push(`Parking ${~~prk}m away`); }
+
+  if (closest.namedRiver < 100) { score += SCORE.on_named_river; reasons.push('On a named river or waterway'); }
+
+  if (closest.newDev < 300) { score += SCORE.new_development_nearby; warnings.push('Near new/council development — water may be managed'); }
+  if (closest.port   < 400) { score += SCORE.active_port_nearby;     warnings.push('Near active port — verify public access'); }
+
+  const mar = closest.marina;
+  if      (mar < 200) { score += SCORE.marina_within_200m;  warnings.push('Inside marina complex — likely private / gated'); }
+  else if (mar < 400) { score += SCORE.marina_within_400m;  warnings.push('Near marina — verify public access before visiting'); }
+
+  // Fallback name
+  if (!displayName) {
+    if (isBridge) {
+      displayName = `${(highway || railway || 'road').charAt(0).toUpperCase() + (highway || railway || 'road').slice(1)} bridge (unnamed)`;
+    } else {
+      displayName = tags.ref || tags.operator || `${(manMade || leisure || amenity || waterway || 'Access point').charAt(0).toUpperCase() + (manMade || leisure || amenity || waterway || 'Access point').slice(1)} (unnamed)`;
+    }
+  }
+
+  return {
+    name:        displayName,
+    lat, lon,
+    score,
+    reasons,
+    warnings,
+    distanceKm:  Math.round(distM(startLat, startLon, lat, lon) / 100) / 10,
+    accessType:  accessLabel,
+    driveMins:   null,
+    yourRating:  null,
+    isRecommended: false,
+  };
+}
+
+// ─────────────────────────────────────────────
+// CLUSTERING  (mirrors Python cluster_spots())
+// ─────────────────────────────────────────────
+
+function clusterSpots(spots, minDist = MIN_CLUSTER_DIST_M) {
+  const selected = [];
+  for (const spot of spots) {
+    const tooClose = selected.some(s => distM(spot.lat, spot.lon, s.lat, s.lon) < minDist);
+    if (!tooClose) selected.push(spot);
+  }
+  return selected;
+}
+
+// ─────────────────────────────────────────────
+// DRIVING TIMES  (OSRM)
+// ─────────────────────────────────────────────
+
+async function getDrivingTimes(startLat, startLon, spots) {
+  if (!spots.length) return {};
+  const parts = [`${startLon},${startLat}`, ...spots.map(s => `${s.lon},${s.lat}`)];
+  try {
+    const url = `${OSRM_URL}/${parts.join(';')}?sources=0&annotations=duration`;
+    const res  = await fetch(url, { headers: { 'User-Agent': 'MagnetFishingFinder/2.0' } });
+    if (!res.ok) throw new Error('OSRM error');
+    const data = await res.json();
+    if (data.code === 'Ok') {
+      const durations = data.durations[0];
+      const result = {};
+      for (let i = 0; i < spots.length; i++) {
+        const t = durations[i + 1];
+        result[i] = t == null ? null : Math.max(1, Math.round(t / 60));
+      }
+      return result;
+    }
+  } catch { /* fall through */ }
+  // Fallback: rough estimate at 25 km/h
+  return Object.fromEntries(spots.map((s, i) => [i, Math.max(1, Math.round(s.distanceKm * 60 / 25))]));
+}
+
+// ─────────────────────────────────────────────
+// MAIN SEARCH FLOW
+// ─────────────────────────────────────────────
+
+let searching = false;
+
+async function startSearch() {
+  if (searching) return;
+  const locInput = document.getElementById('loc-input').value.trim();
+  if (!locInput) { alert('Please enter a starting location.'); return; }
+  const radiusKm = parseInt(document.querySelector('input[name="radius"]:checked').value);
+
+  clearLog();
+  searching = true;
+  document.getElementById('search-btn').disabled = true;
+  document.getElementById('search-btn').textContent = '⏳ Searching… please wait';
+  document.getElementById('view-btn').disabled  = true;
+  document.getElementById('rate-btn').disabled  = true;
+  document.getElementById('results-section').style.display = 'none';
+  document.getElementById('results-list').innerHTML = '';
+  markerLayer.clearLayers();
+  currentSpots = [];
+  startProgress();
+
+  try {
+    // Step 1: Geocode
+    log(`Looking up: ${locInput}`, 'info');
+    const geo = await geocode(locInput);
+    const { lat, lon, display } = geo;
+    log(`✓ Found: ${display.split(',').slice(0,3).join(',')}`, 'good');
+
+    // Ask to confirm
+    const short = display.split(',').slice(0,3).join(',');
+    if (!confirm(`Found this location:\n\n${display.slice(0,180)}\n\nCoordinates: ${lat.toFixed(5)}°, ${lon.toFixed(5)}°\n\nIs this correct?`)) {
+      log('Search cancelled — update the location and try again.', 'warn');
+      stopSearch();
+      return;
+    }
+
+    const radiusM = radiusKm * 1000;
+
+    // Step 2: Fetch candidates
+    log(`Searching piers, jetties and wharves within ${radiusKm} km…`, 'info');
+    const piers = await fetchCandidates(lat, lon, radiusM);
+    log(`  ✓ ${piers.length} piers / jetties / wharves found`, 'good');
+
+    await sleep(3000);
+
+    log('Searching bridges over rivers…', 'info');
+    const bridges = await fetchBridges(lat, lon, radiusM);
+    log(`  ✓ ${bridges.length} bridges over named rivers found`, 'good');
+
+    const allCandidates = [...piers, ...bridges];
+    if (!allCandidates.length) {
+      throw new Error('No water access points found in this area.\nTry a location closer to a river, estuary or harbour.');
+    }
+
+    await sleep(3000);
+
+    // Step 3: Context
+    log('Fetching context data (industrial zones, railways, parking)…', 'info');
+    const context = await fetchContext(lat, lon, radiusM);
+    log(`  ✓ ${context.length} context features loaded`, 'good');
+
+    // Step 4: Score
+    log('Scoring and ranking spots…', 'info');
+    let scored = allCandidates
+      .map(c => scoreSpot(c, context, lat, lon))
+      .filter(s => s && s.score > -20);
+    scored.sort((a, b) => b.score - a.score);
+
+    // Step 5: Apply personal ratings — hide Unaccessable spots
+    scored = scored.filter(s => {
+      const r = getRatingForSpot(s.lat, s.lon);
+      if (r === RATING_UNACCESSIBLE) return false;
+      s.yourRating = r;
+      return true;
+    });
+
+    if (!scored.length) {
+      throw new Error('All spots in this area are marked "No Access" on this device.\nTry another location or clear your ratings.');
+    }
+
+    // Step 6: Cluster
+    const clustered = clusterSpots(scored);
+    const top = clustered.slice(0, MAX_RESULTS);
+    log(`  ✓ ${top.length} well-spaced spots selected`, 'good');
+
+    // Step 7: Driving times
+    log('Calculating driving times…', 'info');
+    const times = await getDrivingTimes(lat, lon, top);
+    let hasNoRoute = false;
+    top.forEach((s, i) => {
+      s.driveMins = times[i] ?? null;
+      if (s.driveMins === null) hasNoRoute = true;
+    });
+    if (hasNoRoute) log('  ⚠ Some spots have no driving route', 'warn');
+    else log('  ✓ Driving times calculated', 'good');
+
+    // Step 8: Recommendation
+    const rated = top.filter(s => s.yourRating != null);
+    const best  = rated.length
+      ? rated.sort((a, b) => (b.yourRating - a.yourRating) || (b.score - a.score))[0]
+      : top.slice().sort((a, b) => b.score - a.score)[0];
+    best.isRecommended = true;
+
+    // Step 9: Render
+    currentSpots = top;
+    renderMap(top, lat, lon, display, radiusKm);
+    renderSidebar(top);
+
+    stopProgress();
+    log(`\n✓ Done — ${top.length} spots found`, 'good');
+    log('Tip: click a pin → Rate This Spot to save your personal rating.', 'info');
+
+    document.getElementById('view-btn').disabled = false;
+    document.getElementById('rate-btn').disabled = false;
+    document.getElementById('results-section').style.display = 'block';
+    document.getElementById('hdr-status').textContent = `${top.length} spots · ${radiusKm} km · ${short.split(',')[0]}`;
+
+  } catch (e) {
+    stopProgress();
+    log(`\n✗ ${e.message}`, 'error');
+    alert(`Error: ${e.message}`);
+  } finally {
+    stopSearch();
+  }
+}
+
+function stopSearch() {
+  searching = false;
+  document.getElementById('search-btn').disabled = false;
+  document.getElementById('search-btn').textContent = '🔍 Find Magnet Fishing Spots';
+}
+
+// ─────────────────────────────────────────────
+// RENDER MAP PINS
+// ─────────────────────────────────────────────
+
+function pinColour(score) {
+  if (score >= 65) return '#27ae60';
+  if (score >= 45) return '#f39c12';
+  if (score >= 20) return '#e67e22';
+  return '#c0392b';
+}
+function scoreLabel(score) {
+  if (score >= 65) return 'Excellent';
+  if (score >= 45) return 'Good';
+  if (score >= 20) return 'Fair';
+  return 'Poor';
+}
+
+function renderMap(spots, centerLat, centerLon, displayName, radiusKm) {
+  markerLayer.clearLayers();
+
+  // Start pin
+  const startIco = L.divIcon({ html: '<div style="background:#5bc8f5;border:3px solid white;border-radius:50%;width:16px;height:16px;box-shadow:0 2px 6px rgba(0,0,0,.5)"></div>', iconSize: [16,16], iconAnchor: [8,8] });
+  L.marker([centerLat, centerLon], { icon: startIco })
+   .bindPopup(`<b>Starting Location</b><br><span style="color:#555">${displayName.split(',').slice(0,3).join(',')}</span>`)
+   .addTo(markerLayer);
+
+  map.setView([centerLat, centerLon], radiusKm >= 30 ? 10 : radiusKm >= 15 ? 11 : 12);
+
+  spots.forEach((s, i) => {
+    const c   = s.isRecommended ? '#9b59b6' : pinColour(s.score);
+    const lbl = s.isRecommended ? '★' : String(i + 1);
+    const ico = L.divIcon({
+      html: `<div style="background:${c};border:3px solid white;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;color:white;box-shadow:0 2px 6px rgba(0,0,0,.45)">${lbl}</div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13],
+    });
+
+    const popup = buildPopup(s, i);
+    L.marker([s.lat, s.lon], { icon: ico })
+     .bindPopup(popup, { maxWidth: 330 })
+     .addTo(markerLayer);
+  });
+}
+
+function buildPopup(s, i) {
+  const c = pinColour(s.score);
+  let p = `<div class="ptitle">${i + 1}. ${esc(s.name)}</div>`;
+  p += `<div class="pscore" style="color:${c}">${scoreLabel(s.score)} — Score: ${s.score}</div>`;
+  if (s.reasons.length) p += s.reasons.map(x => `<div class="prow pgood">✓ ${esc(x)}</div>`).join('');
+  if (s.warnings.length) p += `<div style="margin-top:5px">${s.warnings.map(x => `<div class="prow pwarn">⚠ ${esc(x)}</div>`).join('')}</div>`;
+  if (s.driveMins === null) p += `<div class="pno-route">⚠ No driving route found — may not be car-accessible</div>`;
+  else if (s.driveMins)     p += `<div class="pdrive">🚗 ~${s.driveMins} min drive</div>`;
+  if (s.yourRating != null) {
+    const stars = '★'.repeat(s.yourRating) + '☆'.repeat(5 - s.yourRating);
+    p += `<div class="prow prec">Your stars: ${stars}</div>`;
+  }
+  if (s.isRecommended) p += `<div class="pmuted">★ Your recommendation based on your ratings</div>`;
+  p += `<div class="pmuted">${s.distanceKm} km straight-line · ${esc(s.accessType)}</div>`;
+  p += `<a class="pglink" href="https://www.google.com/maps?q=${s.lat},${s.lon}" target="_blank">📍 Open in Google Maps</a>`;
+  p += `<button class="prate-btn" onclick="openRatingModalForSpot(${i})">⭐ Rate This Spot</button>`;
+  return p;
+}
+
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────────
+// RENDER SIDEBAR LIST
+// ─────────────────────────────────────────────
+
+function renderSidebar(spots) {
+  const ul = document.getElementById('results-list');
+  ul.innerHTML = '';
+  spots.forEach((s, i) => {
+    const li = document.createElement('li');
+    if (s.isRecommended) li.className = 'recommended';
+    const stars = s.yourRating != null
+      ? `<span class="res-stars"> ${'★'.repeat(s.yourRating)}${'☆'.repeat(5 - s.yourRating)}</span>`
+      : '';
+    const rec = s.isRecommended ? ' <span style="color:#9b59b6">★ Recommended</span>' : '';
+    li.innerHTML = `
+      <div class="res-name">${i+1}. ${esc(s.name)}${rec}</div>
+      <div class="res-score">${scoreLabel(s.score)} · ${s.score} pts · ${s.driveMins ? `~${s.driveMins} min drive` : s.distanceKm + ' km'}${stars}</div>`;
+    li.onclick = () => {
+      const layers = Object.values(markerLayer._layers);
+      // Markers for spots start after the start-pin; find by index
+      const marker = layers[i + 1]; // +1 for start pin
+      if (marker) { map.setView(marker.getLatLng(), 15); marker.openPopup(); }
+      if (window.innerWidth <= 640) scrollToMap();
+    };
+    ul.appendChild(li);
+  });
+}
+
+function scrollToMap() {
+  document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ─────────────────────────────────────────────
+// RATING PANEL  (sidebar "Rate Top Spots")
+// ─────────────────────────────────────────────
+
+function openRatingPanel() {
+  if (!currentSpots.length) { alert('Run a search first.'); return; }
+  // Just open the first unrated spot, or spot 0 if all rated
+  const idx = currentSpots.findIndex(s => s.yourRating == null);
+  openRatingModalForSpot(idx >= 0 ? idx : 0);
+}
+
+// ─────────────────────────────────────────────
+// RATING MODAL
+// ─────────────────────────────────────────────
+
+function openRatingModalForSpot(idx) {
+  if (!currentSpots[idx]) return;
+  ratingSpotIndex = idx;
+  const s = currentSpots[idx];
+  document.getElementById('rspot-name').textContent = `${idx + 1}. ${s.name}`;
+  currentRating = s.yourRating;
+  // Update selected state
+  document.querySelectorAll('.star-opt').forEach(el => {
+    const val = parseInt(el.dataset.val);
+    el.classList.toggle('selected', val === currentRating);
+  });
+  document.getElementById('rating-modal').classList.add('open');
+}
+
+function selectRating(val) {
+  currentRating = val;
+  document.querySelectorAll('.star-opt').forEach(el => {
+    el.classList.toggle('selected', parseInt(el.dataset.val) === val);
+  });
+}
+
+function closeRatingModal() {
+  document.getElementById('rating-modal').classList.remove('open');
+  ratingSpotIndex = null;
+  currentRating = null;
+}
+
+function saveRating() {
+  if (ratingSpotIndex === null || currentRating === null) {
+    alert('Please select a rating first.');
+    return;
+  }
+  const spot = currentSpots[ratingSpotIndex];
+  const { entry, idx, list } = findRatingEntry(spot.lat, spot.lon);
+  const now = new Date().toISOString().slice(0, 16);
+
+  if (entry === null) {
+    list.push({ lat: spot.lat, lon: spot.lon, name: spot.name, accessType: spot.accessType, rating: currentRating, updatedAt: now });
+  } else {
+    list[idx] = { ...list[idx], lat: spot.lat, lon: spot.lon, name: spot.name, accessType: spot.accessType, rating: currentRating, updatedAt: now };
+  }
+  saveRatings(list);
+
+  // Update in-memory spot so UI reflects immediately (re-render on next search)
+  spot.yourRating = currentRating;
+
+  // Update sidebar row
+  const li = document.querySelectorAll('#results-list li')[ratingSpotIndex];
+  if (li) {
+    const stars = currentRating === RATING_UNACCESSIBLE
+      ? '<span style="color:#ef9a9a"> 🚫 No Access</span>'
+      : `<span class="res-stars"> ${'★'.repeat(currentRating)}${'☆'.repeat(5 - currentRating)}</span>`;
+    const scoreDiv = li.querySelector('.res-score');
+    if (scoreDiv) {
+      // Remove old stars
+      scoreDiv.querySelectorAll('.res-stars, [style*="ef9a9a"]').forEach(el => el.remove());
+      scoreDiv.insertAdjacentHTML('beforeend', stars);
+    }
+  }
+
+  // Re-render markers to update the pin popup
+  const geoEl = document.getElementById('loc-input');
+  // We don't re-run the full search; just update the popup text by re-rendering markers
+  const layers = Object.values(markerLayer._layers);
+  const marker = layers[ratingSpotIndex + 1];
+  if (marker) {
+    marker.setPopupContent(buildPopup(spot, ratingSpotIndex));
+  }
+
+  const label = currentRating === RATING_UNACCESSIBLE ? 'No Access (hidden next search)' : `${currentRating} star(s)`;
+  log(`✓ Rating saved: "${spot.name}" → ${label}`, 'good');
+  closeRatingModal();
+}
+
+// Close modal on background click
+document.getElementById('rating-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeRatingModal();
+});
+
+// ─────────────────────────────────────────────
+// KEYBOARD SHORTCUT  (Enter to search)
+// ─────────────────────────────────────────────
+document.getElementById('loc-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startSearch();
+});
+</script>
+</body>
+</html>
